@@ -1,72 +1,70 @@
 # Flight Booking
 
-Python 3.12, FastAPI, gRPC, PostgreSQL, SQLAlchemy, Alembic.
-
-Реализован первый блок задания: поиск рейсов, создание, просмотр и отмена
-бронирований. Booking Service вызывает Flight Service по gRPC.
+Python 3.12, FastAPI, gRPC, PostgreSQL, Redis Sentinel, SQLAlchemy и Alembic.
+Booking Service хранит бронирования, Flight Service — рейсы и резервации.
+У сервисов отдельные базы.
 
 ## Запуск
-
-Нужен запущенный Docker с Docker Compose.
 
 ```sh
 docker compose up --build
 ```
 
-- REST: http://localhost:8000/health
-- Swagger: http://localhost:8000/docs
-- gRPC: localhost:50051.
+REST и Swagger: http://localhost:8000/docs. gRPC: localhost:50051.
+Миграции применяются автоматически. Код gRPC генерируется из
+[flight.proto](proto/contracts/flight.proto) при сборке.
+[ER-диаграмма](docs/schema.md).
 
-Каждый сервис хранит данные в своей PostgreSQL. Миграции применяются
-автоматически перед запуском командой `alembic upgrade head`.
-
-Настройки по умолчанию подходят для локального запуска.
-Для изменения паролей и портов скопируй `.env.example` в `.env`.
-Пароли в DATABASE_URL нужно кодировать для URL; изменение `.env` не меняет
-пароли в уже созданных базах.
-
-## Пример
-
-Добавить демонстрационный рейс:
+Для пробного рейса:
 
 ```sh
 docker compose exec flight-service python -m app.seed
 curl 'http://localhost:8000/flights?origin=SVO&destination=LED&date=2026-12-01'
-```
-
-Забронировать два места:
-
-```sh
-curl -X POST http://localhost:8000/bookings \
-  -H 'Content-Type: application/json' \
+curl -X POST http://localhost:8000/bookings -H 'Content-Type: application/json' \
   -d '{"user_id":"user-1","flight_id":"11111111-1111-4111-8111-111111111111","passenger_name":"Anna","passenger_email":"anna@example.com","seat_count":2}'
 ```
 
-Ответ содержит id бронирования, статус CONFIRMED и total_price = 10000.00.
-Для отмены подставь полученный id:
+## API
 
-```sh
-curl -X POST http://localhost:8000/bookings/BOOKING_ID/cancel
-```
-
-| REST | Назначение |
+| Метод | Назначение |
 |---|---|
 | GET /flights?origin=SVO&destination=LED&date=2026-12-01 | Поиск; date необязательна |
-| GET /flights/{id} | Получение рейса |
-| POST /bookings | Создание бронирования |
-| GET /bookings/{id} | Получение бронирования |
-| GET /bookings?user_id=user-1 | Список бронирований пользователя |
-| POST /bookings/{id}/cancel | Отмена бронирования и возврат мест |
+| GET /flights/{id} | Рейс |
+| PATCH /flights/{id} | Изменить price или status |
+| POST /bookings | Забронировать места |
+| GET /bookings/{id} | Бронирование |
+| GET /bookings?user_id=user-1 | Бронирования пользователя |
+| POST /bookings/{id}/cancel | Отмена и возврат мест |
 
-Цены передаются десятичными строками. Время и дата поиска — UTC.
-Недостаток мест и повторная отмена возвращают 409, отсутствие записи — 404.
-Некорректный ввод возвращает 422. Если Flight Service недоступен, ответ — 503.
-Бронирование создаётся после GetFlight и успешного ReserveSeats.
-При ошибке сохранения Booking Service пытается освободить резервацию.
-Полное восстановление после потери связи между сервисами потребует отдельного
-механизма согласования; в первом блоке его нет.
+ID — UUID, даты — UTC, цены — десятичные строки в рублях. Статусы gRPC — enum,
+время — Timestamp. Цена бронирования сохраняется на момент покупки.
 
-gRPC-контракт и коды ошибок — в [proto/README.md](proto/README.md).
+Ошибки gRPC: INVALID_ARGUMENT → 400, NOT_FOUND → 404,
+RESOURCE_EXHAUSTED / FAILED_PRECONDITION / ALREADY_EXISTS → 409,
+UNAVAILABLE → 503, DEADLINE_EXCEEDED → 504, остальные → 502.
+Невалидный REST-ввод возвращает 422. Отсутствующий или неверный gRPC API key
+возвращает UNAUTHENTICATED для всех методов, включая Health Check.
+
+## Механизмы
+
+- Изменение мест и резервации выполняется одной транзакцией с SELECT FOR UPDATE.
+  Бронирование записывается после успешного резерва; ошибка записи запускает компенсацию.
+- Все gRPC-вызовы передают GRPC_API_KEY в metadata x-api-key.
+- Cache-Aside: flight:{id} и search:{origin}:{destination}:{date}, TTL 600 секунд.
+  UpdateFlight, ReserveSeats и ReleaseReservation очищают карточку и поиск.
+  Hit/miss видны в логах. При недоступности Redis сервис читает PostgreSQL;
+  при восстановлении или смене мастера старый кеш очищается.
+- Redis: мастер, реплика, три Sentinel с кворумом 2. Клиент находит мастера через Sentinel.
+- Retry: максимум 3 попытки, паузы 100 и 200 мс, только UNAVAILABLE и DEADLINE_EXCEEDED.
+  Повтор ReserveSeats с тем же booking_id не списывает места повторно.
+- Circuit Breaker реализован в клиентском interceptor: 5 ошибок за 60 секунд открывают
+  цепь на 10 секунд; OPEN сразу возвращает 503; HALF_OPEN пропускает один запрос.
+  Переходы CLOSED / OPEN / HALF_OPEN записываются в логи.
+
+Настройки находятся в [.env.example](.env.example). Для изменения скопируй его в .env.
+Порог, время ожидания и окно Circuit Breaker задаются CB_FAILURE_THRESHOLD,
+CB_RESET_SECONDS и CB_WINDOW_SECONDS. TTL допускает 300–600 секунд.
+Значения по умолчанию предназначены для локального запуска.
 
 ## Проверка
 
@@ -74,15 +72,8 @@ gRPC-контракт и коды ошибок — в [proto/README.md](proto/RE
 sh scripts/check.sh
 ```
 
-Проверяются миграции, ограничения таблиц, REST, gRPC и конкурентное бронирование
-последнего места. Тестовый контейнер запускается только с профилем test.
-Проверочные записи удаляются после тестов. Такая же проверка запускается
-в GitHub Actions.
+Проверяются API, транзакции, авторизация, кеш, retry и Circuit Breaker.
+Тесты также останавливают мастер Redis и Flight Service и проверяют восстановление.
+Остановленные контейнеры запускаются обратно. Эти же проверки выполняет GitHub Actions.
 
-## Остановка
-
-```sh
-docker compose down
-```
-
-Данные сохраняются в Docker volumes. Схема таблиц — в [docs/schema.md](docs/schema.md).
+Остановка: `docker compose down`. Данные PostgreSQL сохраняются в volumes.

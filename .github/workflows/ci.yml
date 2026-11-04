@@ -1,4 +1,4 @@
-name: Check scaffold and migrations
+name: Check Flight Booking
 
 on: [push, pull_request, workflow_dispatch]
 
@@ -21,7 +21,7 @@ jobs:
           ruff check .
           ruff format --check .
           python -m compileall -q booking-service flight-service scripts
-      - name: Start services and verify migrations
+      - name: Check services and failure recovery
         run: sh scripts/check.sh
       - name: Container logs
         if: always()
