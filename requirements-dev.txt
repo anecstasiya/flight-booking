@@ -1,0 +1,3 @@
+-r booking-service/requirements.txt
+-r flight-service/requirements.txt
+ruff==0.17.3
