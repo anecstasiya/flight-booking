@@ -3,6 +3,8 @@
 ```mermaid
 erDiagram
     FLIGHT ||--o{ SEAT_RESERVATION : has
+    FLIGHT ||..o{ BOOKING : "flight_id (logical)"
+    BOOKING ||..|| SEAT_RESERVATION : "booking_id (logical)"
     FLIGHT {
         uuid id PK
         varchar flight_number

@@ -52,8 +52,11 @@ services:
       dockerfile: booking-service/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://booking:${BOOKING_DB_PASSWORD:-booking_dev}@booking-db:5432/booking
+      FLIGHT_SERVICE_ADDRESS: flight-service:50051
     depends_on:
       booking-db:
+        condition: service_healthy
+      flight-service:
         condition: service_healthy
     ports:
       - "127.0.0.1:${BOOKING_PORT:-8000}:8000"
@@ -62,6 +65,22 @@ services:
       interval: 5s
       timeout: 4s
       retries: 15
+
+  tests:
+    profiles: [test]
+    build:
+      context: .
+      dockerfile: tests/Dockerfile
+    environment:
+      BOOKING_URL: http://booking-service:8000
+      FLIGHT_SERVICE_ADDRESS: flight-service:50051
+      TEST_BOOKING_DATABASE_URL: postgresql://booking:${BOOKING_DB_PASSWORD:-booking_dev}@booking-db:5432/booking
+      TEST_FLIGHT_DATABASE_URL: postgresql://flight:${FLIGHT_DB_PASSWORD:-flight_dev}@flight-db:5432/flight
+    depends_on:
+      booking-service:
+        condition: service_healthy
+      flight-service:
+        condition: service_healthy
 
 volumes:
   booking-data:

@@ -8,4 +8,5 @@ docker compose exec -T flight-service python - flight < scripts/check_database.p
 docker compose exec -T booking-service python -c \
   "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').read().decode())"
 docker compose exec -T flight-service python -m app.healthcheck
+docker compose --profile test run --build --rm tests
 printf 'All checks passed. Services are still running.\n'
