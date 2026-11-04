@@ -11,3 +11,5 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+/booking-service/contracts/
+/flight-service/contracts/
