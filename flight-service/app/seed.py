@@ -4,6 +4,7 @@ from uuid import UUID
 
 from sqlalchemy.dialects.postgresql import insert
 
+from app.cache import CacheInterceptor
 from app.database import engine
 from app.models import Flight
 
@@ -25,4 +26,6 @@ with engine.begin() as connection:
         )
         .on_conflict_do_nothing()
     )
+cache = CacheInterceptor()
+cache.run(lambda: cache.clear("flight:*", "search:*"))
 print("Demo flight: 11111111-1111-4111-8111-111111111111")

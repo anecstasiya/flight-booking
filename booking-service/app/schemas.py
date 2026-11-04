@@ -42,3 +42,8 @@ class FlightResponse(BaseModel):
     available_seats: int
     price: Decimal
     status: Literal["SCHEDULED", "DEPARTED", "CANCELLED", "COMPLETED"]
+
+
+class FlightUpdate(BaseModel):
+    price: Decimal | None = Field(default=None, gt=0, max_digits=12, decimal_places=2)
+    status: Literal["SCHEDULED", "DEPARTED", "CANCELLED", "COMPLETED"] | None = None

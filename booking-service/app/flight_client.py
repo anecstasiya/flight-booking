@@ -1,19 +1,26 @@
 import os
 
 import grpc
-from contracts import flight_pb2 as pb
 from contracts import flight_pb2_grpc as rpc
 from fastapi import HTTPException
+from google.protobuf.json_format import MessageToDict
+
+from app.resilience import ResilienceInterceptor
 
 ADDRESS = os.getenv("FLIGHT_SERVICE_ADDRESS", "localhost:50051")
 TIMEOUT = float(os.getenv("GRPC_TIMEOUT_SECONDS", "3"))
+API_KEY = os.environ["GRPC_API_KEY"]
+resilience = ResilienceInterceptor()
 
 
 def call_flight(method, request):
-    with grpc.insecure_channel(ADDRESS) as channel:
+    with grpc.insecure_channel(ADDRESS, options=[("grpc.enable_retries", 0)]) as raw:
+        channel = grpc.intercept_channel(raw, resilience)
         stub = rpc.FlightServiceStub(channel)
         try:
-            return getattr(stub, method)(request, timeout=TIMEOUT)
+            return getattr(stub, method)(
+                request, timeout=TIMEOUT, metadata=(("x-api-key", API_KEY),)
+            )
         except grpc.RpcError as error:
             status = {
                 grpc.StatusCode.INVALID_ARGUMENT: 400,
@@ -33,16 +40,8 @@ def call_flight(method, request):
 
 
 def flight_data(flight):
-    return {
-        "id": flight.id,
-        "flight_number": flight.flight_number,
-        "airline": flight.airline,
-        "origin": flight.origin,
-        "destination": flight.destination,
-        "departure_time": flight.departure_time.ToJsonString(),
-        "arrival_time": flight.arrival_time.ToJsonString(),
-        "total_seats": flight.total_seats,
-        "available_seats": flight.available_seats,
-        "price": flight.price,
-        "status": pb.FlightStatus.Name(flight.status),
-    }
+    return MessageToDict(
+        flight,
+        preserving_proto_field_name=True,
+        always_print_fields_with_no_presence=True,
+    )

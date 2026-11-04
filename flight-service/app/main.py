@@ -1,3 +1,4 @@
+import logging
 import os
 import signal
 from concurrent import futures
@@ -8,6 +9,8 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth import AuthInterceptor
+from app.cache import CacheInterceptor
 from app.database import engine
 from app.service import FlightService
 
@@ -29,7 +32,11 @@ class DatabaseHealth(health_pb2_grpc.HealthServicer):
 
 
 def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    logging.basicConfig(level=logging.INFO)
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=4),
+        interceptors=[AuthInterceptor(), CacheInterceptor()],
+    )
     flight_pb2_grpc.add_FlightServiceServicer_to_server(FlightService(), server)
     health_pb2_grpc.add_HealthServicer_to_server(DatabaseHealth(), server)
     port = os.getenv("GRPC_PORT", "50051")

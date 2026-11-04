@@ -68,8 +68,9 @@ def test_booking_round_trip(api, stub, new_flight, flight_db):
         [UUID(booking["id"])],
     ).fetchone()
     assert reservation == (2, "ACTIVE")
-    flight_db.execute(
-        "UPDATE flights SET price = 9999.99 WHERE id = %s", [flight["id"]]
+    assert (
+        api.patch(f"/flights/{flight['id']}", json={"price": "9999.99"}).status_code
+        == 200
     )
     assert api.get(f"/bookings/{booking['id']}").json() == booking
     response = api.get("/bookings", params={"user_id": body["user_id"]})

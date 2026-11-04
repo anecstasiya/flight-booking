@@ -9,7 +9,9 @@ def check():
         f"127.0.0.1:{os.getenv('GRPC_PORT', '50051')}"
     ) as channel:
         response = health_pb2_grpc.HealthStub(channel).Check(
-            health_pb2.HealthCheckRequest(), timeout=3
+            health_pb2.HealthCheckRequest(),
+            timeout=3,
+            metadata=(("x-api-key", os.environ["GRPC_API_KEY"]),),
         )
     if response.status != health_pb2.HealthCheckResponse.SERVING:
         raise SystemExit("Flight Service is not serving")

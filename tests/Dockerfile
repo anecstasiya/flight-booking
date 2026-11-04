@@ -9,4 +9,5 @@ COPY proto /tmp/proto
 COPY scripts/generate_proto.py /tmp/generate_proto.py
 RUN python /tmp/generate_proto.py /tmp/proto /app
 COPY tests tests
+COPY booking-service/app/resilience.py booking-service/app/resilience.py
 CMD ["python", "-m", "pytest", "-q", "tests"]

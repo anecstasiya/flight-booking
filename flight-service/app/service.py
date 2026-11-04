@@ -1,6 +1,7 @@
 import re
 import uuid
 from datetime import UTC
+from decimal import Decimal, InvalidOperation
 
 import grpc
 from contracts import flight_pb2 as pb
@@ -87,6 +88,39 @@ class FlightService(rpc.FlightServiceServicer):
             if flight is None:
                 context.abort(grpc.StatusCode.NOT_FOUND, "Flight not found")
             return flight_message(flight)
+
+    def UpdateFlight(self, request, context):
+        flight_id = parse_id(request.flight_id, context)
+        values = {}
+        try:
+            if request.HasField("price"):
+                price = Decimal(request.price)
+                if (
+                    not price.is_finite()
+                    or not 0 < price < 10**10
+                    or price != price.quantize(Decimal("0.01"))
+                ):
+                    raise ValueError()
+                values["price"] = price
+            if request.HasField("status"):
+                status = pb.FlightStatus.Name(request.status)
+                if status == "FLIGHT_STATUS_UNSPECIFIED":
+                    raise ValueError()
+                values["status"] = status
+            if not values:
+                raise ValueError()
+        except (ValueError, InvalidOperation):
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Invalid flight update")
+        with Session(engine) as session, session.begin():
+            flight = session.scalar(
+                select(Flight).where(Flight.id == flight_id).with_for_update()
+            )
+            if flight is None:
+                context.abort(grpc.StatusCode.NOT_FOUND, "Flight not found")
+            for field, value in values.items():
+                setattr(flight, field, value)
+            response = flight_message(flight)
+        return response
 
     def ReserveSeats(self, request, context):
         flight_id = parse_id(request.flight_id, context)

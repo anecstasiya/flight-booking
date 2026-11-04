@@ -1,6 +1,7 @@
 import os
 from datetime import UTC, datetime
 from decimal import Decimal
+from functools import partial
 from uuid import uuid4
 
 import grpc
@@ -8,6 +9,7 @@ import httpx
 import psycopg
 import pytest
 from contracts import flight_pb2_grpc
+from redis.sentinel import Sentinel
 
 
 @pytest.fixture(scope="session")
@@ -19,7 +21,30 @@ def api():
 @pytest.fixture(scope="session")
 def stub():
     with grpc.insecure_channel(os.environ["FLIGHT_SERVICE_ADDRESS"]) as channel:
-        yield flight_pb2_grpc.FlightServiceStub(channel)
+        client = flight_pb2_grpc.FlightServiceStub(channel)
+        metadata = (("x-api-key", os.environ["GRPC_API_KEY"]),)
+        for method in (
+            "SearchFlights",
+            "GetFlight",
+            "UpdateFlight",
+            "ReserveSeats",
+            "ReleaseReservation",
+        ):
+            setattr(client, method, partial(getattr(client, method), metadata=metadata))
+        yield client
+
+
+@pytest.fixture(scope="session")
+def sentinel():
+    addresses = [
+        address.rsplit(":", 1) for address in os.environ["REDIS_SENTINELS"].split(",")
+    ]
+    return Sentinel([(host, int(port)) for host, port in addresses], socket_timeout=0.5)
+
+
+@pytest.fixture(scope="session")
+def cache(sentinel):
+    return sentinel.master_for("flight-cache", socket_timeout=0.5)
 
 
 @pytest.fixture(scope="session")
@@ -39,7 +64,7 @@ def flight_db():
 
 
 @pytest.fixture
-def new_flight(flight_db, booking_db):
+def new_flight(flight_db, booking_db, cache):
     ids = []
 
     def create(**changes):
@@ -67,6 +92,8 @@ def new_flight(flight_db, booking_db):
             row,
         )
         ids.append(row["id"])
+        for key in cache.scan_iter(match="search:*"):
+            cache.delete(key)
         return row
 
     yield create
@@ -76,3 +103,6 @@ def new_flight(flight_db, booking_db):
             "DELETE FROM seat_reservations WHERE flight_id = %s", [flight_id]
         )
         flight_db.execute("DELETE FROM flights WHERE id = %s", [flight_id])
+        cache.delete(f"flight:{flight_id}")
+    for key in cache.scan_iter(match="search:*"):
+        cache.delete(key)

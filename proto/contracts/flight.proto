@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 service FlightService {
   rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
   rpc GetFlight(GetFlightRequest) returns (Flight);
+  rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
   rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
   rpc ReleaseReservation(ReleaseReservationRequest) returns (SeatReservation);
 }
@@ -67,6 +68,12 @@ message ReserveSeatsRequest {
   string flight_id = 1;
   int32 seat_count = 2;
   string booking_id = 3;
+}
+
+message UpdateFlightRequest {
+  string flight_id = 1;
+  optional string price = 2;
+  optional FlightStatus status = 3;
 }
 
 message ReleaseReservationRequest {

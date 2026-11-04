@@ -1,6 +1,47 @@
 name: flight-booking
 
+x-sentinel: &sentinel
+  image: redis:7.4-alpine
+  command: [sh, -c, 'cp /etc/sentinel.conf /tmp/sentinel.conf && exec redis-server /tmp/sentinel.conf --sentinel']
+  volumes:
+    - ./redis/sentinel.conf:/etc/sentinel.conf:ro
+  depends_on:
+    redis-master:
+      condition: service_healthy
+    redis-replica:
+      condition: service_healthy
+  healthcheck:
+    test: [CMD, redis-cli, -p, '26379', ping]
+    interval: 2s
+    timeout: 3s
+    retries: 30
+
 services:
+  redis-master:
+    image: redis:7.4-alpine
+    command: [redis-server, --protected-mode, 'no', --replica-announce-ip, redis-master]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-replica:
+    image: redis:7.4-alpine
+    command: [redis-server, --protected-mode, 'no', --replicaof, redis-master, '6379', --replica-announce-ip, redis-replica]
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  sentinel-1: *sentinel
+  sentinel-2: *sentinel
+  sentinel-3: *sentinel
+
   booking-db:
     image: postgres:17-alpine
     environment:
@@ -35,8 +76,17 @@ services:
       dockerfile: flight-service/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://flight:${FLIGHT_DB_PASSWORD:-flight_dev}@flight-db:5432/flight
+      GRPC_API_KEY: ${GRPC_API_KEY:-dev-flight-key}
+      REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-600}
     depends_on:
       flight-db:
+        condition: service_healthy
+      sentinel-1:
+        condition: service_healthy
+      sentinel-2:
+        condition: service_healthy
+      sentinel-3:
         condition: service_healthy
     ports:
       - "127.0.0.1:${FLIGHT_GRPC_PORT:-50051}:50051"
@@ -53,6 +103,12 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://booking:${BOOKING_DB_PASSWORD:-booking_dev}@booking-db:5432/booking
       FLIGHT_SERVICE_ADDRESS: flight-service:50051
+      GRPC_API_KEY: ${GRPC_API_KEY:-dev-flight-key}
+      GRPC_TIMEOUT_SECONDS: ${GRPC_TIMEOUT_SECONDS:-3}
+      GRPC_RETRY_DELAY: ${GRPC_RETRY_DELAY:-0.1}
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-5}
+      CB_RESET_SECONDS: ${CB_RESET_SECONDS:-10}
+      CB_WINDOW_SECONDS: ${CB_WINDOW_SECONDS:-60}
     depends_on:
       booking-db:
         condition: service_healthy
@@ -74,6 +130,10 @@ services:
     environment:
       BOOKING_URL: http://booking-service:8000
       FLIGHT_SERVICE_ADDRESS: flight-service:50051
+      GRPC_API_KEY: ${GRPC_API_KEY:-dev-flight-key}
+      REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      CB_FAILURE_THRESHOLD: ${CB_FAILURE_THRESHOLD:-5}
+      CB_RESET_SECONDS: ${CB_RESET_SECONDS:-10}
       TEST_BOOKING_DATABASE_URL: postgresql://booking:${BOOKING_DB_PASSWORD:-booking_dev}@booking-db:5432/booking
       TEST_FLIGHT_DATABASE_URL: postgresql://flight:${FLIGHT_DB_PASSWORD:-flight_dev}@flight-db:5432/flight
     depends_on:

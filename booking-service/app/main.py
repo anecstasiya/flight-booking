@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.database import engine
 from app.flight_client import call_flight, flight_data
 from app.models import Booking
-from app.schemas import BookingRequest, BookingResponse, FlightResponse
+from app.schemas import BookingRequest, BookingResponse, FlightResponse, FlightUpdate
 
 app = FastAPI(title="Booking Service")
 logger = logging.getLogger(__name__)
@@ -28,11 +28,8 @@ async def database_error(request, error):
 
 @app.get("/health", tags=["health"])
 def health():
-    try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-    except SQLAlchemyError:
-        raise HTTPException(status_code=503, detail="Database unavailable") from None
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
     return {"status": "ok", "service": "booking-service"}
 
 
@@ -97,6 +94,19 @@ def create_booking(body: BookingRequest):
         except HTTPException:
             logger.exception("Could not release reservation %s", booking_id)
         raise
+
+
+@app.patch("/flights/{flight_id}", response_model=FlightResponse)
+def update_flight(flight_id: UUID, body: FlightUpdate):
+    values = body.model_dump(exclude_none=True)
+    if not values:
+        raise HTTPException(status_code=422, detail="Provide price or status")
+    request = pb.UpdateFlightRequest(flight_id=str(flight_id))
+    if body.price is not None:
+        request.price = str(body.price)
+    if body.status is not None:
+        request.status = pb.FlightStatus.Value(body.status)
+    return flight_data(call_flight("UpdateFlight", request))
 
 
 @app.get("/bookings", response_model=list[BookingResponse])
