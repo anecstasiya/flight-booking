@@ -1,5 +1,3 @@
-"""Create initial tables. Dates and date-based uniqueness use UTC."""
-
 import sqlalchemy as sa
 from alembic import op
 

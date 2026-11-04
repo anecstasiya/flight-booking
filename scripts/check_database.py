@@ -1,8 +1,3 @@
-"""Run inside either service: python - booking|flight < scripts/check_database.py.
-
-All sample rows are rolled back. Only migrations persist.
-"""
-
 import subprocess
 import sys
 import uuid
@@ -16,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 service = sys.argv[1]
 assert service in {"booking", "flight"}, "Expected booking or flight"
 
-# A second upgrade must be safe, and models must match the migrated schema.
+
 for _ in range(2):
     subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], check=True)
 subprocess.run([sys.executable, "-m", "alembic", "check"], check=True)
@@ -105,7 +100,6 @@ with engine.connect() as connection:
                     candidate["available_seats"] = 0
                 reject("flights", candidate, constraint)
 
-            # Two times on the same UTC date still identify one flight number.
             reject(
                 "flights",
                 {
