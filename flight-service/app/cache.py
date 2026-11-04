@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 import threading
 from datetime import UTC
 from uuid import UUID
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class CacheInterceptor(grpc.ServerInterceptor):
     def __init__(self):
         addresses = [
-            (host, int(port))
+            (socket.gethostbyname(host), int(port))
             for host, port in (
                 address.rsplit(":", 1)
                 for address in os.environ["REDIS_SENTINELS"].split(",")

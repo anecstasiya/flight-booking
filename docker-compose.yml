@@ -1,8 +1,14 @@
 name: flight-booking
 
 x-sentinel: &sentinel
-  image: redis:7.4-alpine
-  command: [sh, -c, 'cp /etc/sentinel.conf /tmp/sentinel.conf && exec redis-server /tmp/sentinel.conf --sentinel']
+  image: redis:7.4
+  command:
+    - sh
+    - -c
+    - |
+      master=$$(getent hosts redis-master | awk '{print $$1; exit}')
+      sed "s/redis-master/$$master/" /etc/sentinel.conf > /tmp/sentinel.conf
+      exec redis-server /tmp/sentinel.conf --sentinel
   volumes:
     - ./redis/sentinel.conf:/etc/sentinel.conf:ro
   depends_on:
@@ -18,8 +24,11 @@ x-sentinel: &sentinel
 
 services:
   redis-master:
-    image: redis:7.4-alpine
-    command: [redis-server, --protected-mode, 'no', --replica-announce-ip, redis-master]
+    image: redis:7.4
+    command:
+      - sh
+      - -c
+      - exec redis-server --protected-mode no --replica-announce-ip $$(getent hosts $$HOSTNAME | awk '{print $$1; exit}')
     healthcheck:
       test: [CMD, redis-cli, ping]
       interval: 2s
@@ -27,8 +36,11 @@ services:
       retries: 30
 
   redis-replica:
-    image: redis:7.4-alpine
-    command: [redis-server, --protected-mode, 'no', --replicaof, redis-master, '6379', --replica-announce-ip, redis-replica]
+    image: redis:7.4
+    command:
+      - sh
+      - -c
+      - exec redis-server --protected-mode no --replicaof $$(getent hosts redis-master | awk '{print $$1; exit}') 6379 --replica-announce-ip $$(getent hosts $$HOSTNAME | awk '{print $$1; exit}')
     depends_on:
       redis-master:
         condition: service_healthy

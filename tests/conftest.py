@@ -1,4 +1,5 @@
 import os
+import socket
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import partial
@@ -39,7 +40,10 @@ def sentinel():
     addresses = [
         address.rsplit(":", 1) for address in os.environ["REDIS_SENTINELS"].split(",")
     ]
-    return Sentinel([(host, int(port)) for host, port in addresses], socket_timeout=0.5)
+    return Sentinel(
+        [(socket.gethostbyname(host), int(port)) for host, port in addresses],
+        socket_timeout=0.5,
+    )
 
 
 @pytest.fixture(scope="session")
